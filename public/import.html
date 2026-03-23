@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>批量导入邮箱</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&display=swap">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #1a73e8;
+      --blue-hover: #1557b0;
+      --blue-light: #e8f0fe;
+      --text:       #202124;
+      --text-sub:   #5f6368;
+      --text-muted: #9aa0a6;
+      --border:     #e0e0e0;
+      --bg:         #f6f8fc;
+      --white:      #ffffff;
+      --green:      #1e8e3e;
+      --green-bg:   #e6f4ea;
+      --red:        #d93025;
+      --red-bg:     #fce8e6;
+      --radius:     8px;
+      --shadow:     0 1px 3px rgba(0,0,0,.08);
+    }
+
+    html, body {
+      min-height: 100%; background: var(--bg); color: var(--text);
+      font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size: 14px; -webkit-font-smoothing: antialiased;
+    }
+
+    /* 顶栏 */
+    .topbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 24px; height: 56px;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .topbar__icon { width: 22px; height: 22px; color: var(--blue); }
+    .topbar__title { font-size: 17px; font-weight: 600; }
+
+    /* 主区 */
+    .main {
+      max-width: 720px; margin: 32px auto;
+      padding: 0 16px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+
+    /* 说明卡片 */
+    .tip-card {
+      background: var(--blue-light);
+      border: 1px solid #c5d8f8;
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: 13px; color: #1a56c4; line-height: 1.7;
+    }
+    .tip-card code {
+      background: rgba(26,83,194,.12);
+      border-radius: 4px; padding: 1px 5px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+    }
+
+    /* 输入区 */
+    .card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card__header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600; font-size: 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .card__body { padding: 16px 20px; }
+
+    textarea {
+      width: 100%; min-height: 260px;
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 12px; resize: vertical;
+      font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+      font-size: 13px; line-height: 1.6; color: var(--text);
+      background: #fafafa;
+      outline: none; transition: border-color .15s;
+    }
+    textarea:focus { border-color: var(--blue); background: var(--white); }
+    textarea::placeholder { color: var(--text-muted); }
+
+    /* 操作栏 */
+    .actions {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-top: 14px;
+    }
+    .line-count { font-size: 13px; color: var(--text-muted); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 22px; border: none; border-radius: 20px;
+      font-size: 14px; font-weight: 500; font-family: inherit;
+      cursor: pointer; transition: background .15s, box-shadow .15s;
+    }
+    .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .btn--primary { background: var(--blue); color: #fff; }
+    .btn--primary:hover { background: var(--blue-hover); }
+    .btn--primary:disabled { opacity: .6; cursor: wait; }
+    .btn--ghost {
+      background: transparent; color: var(--text-sub);
+      border: 1px solid var(--border);
+    }
+    .btn--ghost:hover { background: var(--bg); }
+
+    /* 结果区 */
+    .result {
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: 13px; line-height: 1.7;
+      display: none;
+    }
+    .result--success {
+      background: var(--green-bg); border: 1px solid #a8d5b5; color: var(--green);
+    }
+    .result--error {
+      background: var(--red-bg); border: 1px solid #f5c6c3; color: var(--red);
+    }
+    .result__title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+    .result__list { padding-left: 16px; }
+    .result__list li { margin-top: 3px; }
+
+    @media (max-width: 600px) {
+      .main { margin: 16px auto; }
+      .actions { flex-direction: column; align-items: stretch; }
+      .btn { justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <svg class="topbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+    <path d="M12 5v14M5 12l7-7 7 7"/>
+  </svg>
+  <span class="topbar__title">批量导入邮箱</span>
+</header>
+
+<main class="main">
+
+  <div class="tip-card">
+    每行一条，支持两种格式：<br>
+    <code>邮箱----密码----clientid----refresh_token</code><br>
+    <code>邮箱----密码----clientid----refresh_token----辅助邮箱----辅助邮箱密码</code>
+  </div>
+
+  <div class="card">
+    <div class="card__header">
+      <span>邮箱数据</span>
+      <button class="btn btn--ghost" id="clearBtn" style="padding:5px 14px;font-size:13px">清空</button>
+    </div>
+    <div class="card__body">
+      <textarea id="inputArea" placeholder="粘贴邮箱数据，每行一条…
+user1@outlook.com----password1----client-id-1----refresh-token-1
+user2@outlook.com----password2----client-id-2----refresh-token-2----helper@example.com----helper-pass"></textarea>
+      <div class="actions">
+        <span class="line-count" id="lineCount">0 行</span>
+        <button class="btn btn--primary" id="submitBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+          开始导入
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="result" id="result">
+    <div class="result__title" id="resultTitle"></div>
+    <div id="resultBody"></div>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  const params    = new URLSearchParams(location.search);
+  const token     = params.get('token');
+  const inputArea = document.getElementById('inputArea');
+  const submitBtn = document.getElementById('submitBtn');
+  const clearBtn  = document.getElementById('clearBtn');
+  const lineCount = document.getElementById('lineCount');
+  const result    = document.getElementById('result');
+  const resultTitle = document.getElementById('resultTitle');
+  const resultBody  = document.getElementById('resultBody');
+
+  function updateCount() {
+    const lines = inputArea.value.split('\n').filter(l => l.trim()).length;
+    lineCount.textContent = lines + ' 行';
+  }
+
+  inputArea.addEventListener('input', updateCount);
+
+  clearBtn.addEventListener('click', () => {
+    inputArea.value = '';
+    updateCount();
+    result.style.display = 'none';
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    const text = inputArea.value.trim();
+    if (!text) { inputArea.focus(); return; }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '导入中…';
+    result.style.display = 'none';
+
+    try {
+      const res  = await fetch(`/api/import?token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        showResult(false, '请求失败', [data.error || '未知错误']);
+        return;
+      }
+
+      const title = `导入完成：成功 ${data.imported} 条，失败 ${data.failed} 条`;
+      showResult(data.failed === 0, title, data.failures || []);
+
+      if (data.imported > 0 && data.failed === 0) {
+        inputArea.value = '';
+        updateCount();
+      }
+    } catch {
+      showResult(false, '网络错误', ['请检查网络后重试']);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>开始导入`;
+    }
+  });
+
+  function showResult(success, title, failures) {
+    result.className = 'result ' + (success ? 'result--success' : 'result--error');
+    resultTitle.textContent = title;
+    if (failures.length > 0) {
+      resultBody.innerHTML = '<ul class="result__list">' +
+        failures.map(f => `<li>${escHtml(f)}</li>`).join('') + '</ul>';
+    } else {
+      resultBody.innerHTML = '';
+    }
+    result.style.display = '';
+    result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  updateCount();
+})();
+</script>
+</body>
+</html>

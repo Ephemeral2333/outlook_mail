@@ -1,0 +1,9 @@
+data/
+temp_firemail/
+__pycache__/
+app/__pycache__/
+*.pyc
+.env
+.git/
+.gitignore
+README.md
