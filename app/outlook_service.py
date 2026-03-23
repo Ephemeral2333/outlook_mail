@@ -60,74 +60,118 @@ def _imap_connect(email_address, access_token):
     return mail
 
 
+# 要拉取的文件夹列表，名称是 Outlook IMAP 的标准文件夹名
+FETCH_FOLDERS = [
+    ('INBOX',                '收件箱'),
+    ('Junk',                 '垃圾邮件'),
+    ('Junk Email',           '垃圾邮件'),   # 部分账号用这个名字
+]
+
+def _parse_message(raw_email, flags_raw, folder_name, email_id_str):
+    """解析一封原始邮件，返回结构化数据"""
+    is_read = '\\Seen' in flags_raw
+    msg = email.message_from_bytes(raw_email)
+
+    subject     = _decode_str(msg.get('Subject', ''))
+    from_header = _decode_str(msg.get('From', 'Unknown'))
+    to_header   = _decode_str(msg.get('To', ''))
+    date_str    = msg.get('Date', '')
+
+    # 解析时间用于排序
+    from email.utils import parsedate_to_datetime
+    try:
+        date_dt = parsedate_to_datetime(date_str)
+        date_ts = date_dt.timestamp()
+    except Exception:
+        date_ts = 0
+
+    html_body   = ''
+    text_body   = ''
+    attachments = []
+
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            disposition  = str(part.get('Content-Disposition', ''))
+            if 'attachment' in disposition:
+                filename = _decode_str(part.get_filename() or '')
+                attachments.append({
+                    'filename': filename,
+                    'contentType': content_type,
+                    'size': len(part.get_payload(decode=True) or b'')
+                })
+            elif content_type == 'text/html' and not html_body:
+                html_body = _decode_payload(part)
+            elif content_type == 'text/plain' and not text_body:
+                text_body = _decode_payload(part)
+    else:
+        if msg.get_content_type() == 'text/html':
+            html_body = _decode_payload(msg)
+        else:
+            text_body = _decode_payload(msg)
+
+    preview = (text_body or html_body)[:200].strip()
+
+    return {
+        'id': email_id_str,
+        'folder': folder_name,
+        'subject': subject or '(no subject)',
+        'from': from_header,
+        'to': to_header,
+        'receivedAt': date_str,
+        '_ts': date_ts,
+        'isRead': is_read,
+        'hasAttachments': len(attachments) > 0,
+        'preview': preview,
+        'htmlBody': html_body,
+        'textBody': text_body,
+        'attachments': attachments
+    }
+
+
 def fetch_emails(email_address, access_token, limit=20):
     try:
         mail = _imap_connect(email_address, access_token)
-        mail.select('inbox')
-
-        _, messages = mail.search(None, 'ALL')
-        email_ids = messages[0].split()
-        recent_ids = email_ids[-limit:] if len(email_ids) > limit else email_ids
-
         result = []
-        for email_id in reversed(recent_ids):
-            # 一次性拉取完整邮件 + FLAGS
-            _, msg_data = mail.fetch(email_id, '(RFC822 FLAGS)')
-            raw_email = msg_data[0][1]
-            flags_raw = msg_data[0][0].decode() if msg_data[0][0] else ''
-            is_read = '\\Seen' in flags_raw
+        seen_folders = set()
 
-            msg = email.message_from_bytes(raw_email)
+        for folder_imap, folder_label in FETCH_FOLDERS:
+            # 同一个文件夹可能有多个别名，只取一次
+            if folder_label in seen_folders:
+                continue
 
-            subject     = _decode_str(msg.get('Subject', ''))
-            from_header = _decode_str(msg.get('From', 'Unknown'))
-            to_header   = _decode_str(msg.get('To', ''))
-            date        = msg.get('Date', '')
+            status, _ = mail.select(folder_imap, readonly=True)
+            if status != 'OK':
+                continue
 
-            html_body  = ''
-            text_body  = ''
-            attachments = []
+            seen_folders.add(folder_label)
 
-            if msg.is_multipart():
-                for part in msg.walk():
-                    content_type = part.get_content_type()
-                    disposition  = str(part.get('Content-Disposition', ''))
-                    if 'attachment' in disposition:
-                        filename = _decode_str(part.get_filename() or '')
-                        attachments.append({
-                            'filename': filename,
-                            'contentType': content_type,
-                            'size': len(part.get_payload(decode=True) or b'')
-                        })
-                    elif content_type == 'text/html' and not html_body:
-                        html_body = _decode_payload(part)
-                    elif content_type == 'text/plain' and not text_body:
-                        text_body = _decode_payload(part)
-            else:
-                if msg.get_content_type() == 'text/html':
-                    html_body = _decode_payload(msg)
-                else:
-                    text_body = _decode_payload(msg)
+            _, messages = mail.search(None, 'ALL')
+            email_ids = messages[0].split()
+            if not email_ids:
+                continue
 
-            preview = (text_body or html_body)[:200].strip()
+            # 每个文件夹取最近 limit 封
+            recent_ids = email_ids[-limit:]
 
-            result.append({
-                'id': email_id.decode(),
-                'subject': subject or '(no subject)',
-                'from': from_header,
-                'to': to_header,
-                'receivedAt': date,
-                'isRead': is_read,
-                'hasAttachments': len(attachments) > 0,
-                'preview': preview,
-                'htmlBody': html_body,
-                'textBody': text_body,
-                'attachments': attachments
-            })
+            for email_id in reversed(recent_ids):
+                _, msg_data = mail.fetch(email_id, '(RFC822 FLAGS)')
+                if not msg_data or not msg_data[0]:
+                    continue
+                raw_email = msg_data[0][1]
+                flags_raw = msg_data[0][0].decode() if msg_data[0][0] else ''
+                parsed = _parse_message(raw_email, flags_raw, folder_label, email_id.decode())
+                result.append(parsed)
 
-        mail.close()
         mail.logout()
-        return result
+
+        # 按时间倒序，最终只取最新的 limit 封
+        result.sort(key=lambda x: x['_ts'], reverse=True)
+        for item in result:
+            del item['_ts']
+
+        return result[:limit]
+
     except Exception as e:
         print(f'IMAP fetch_emails error: {e}')
         raise

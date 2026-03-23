@@ -184,6 +184,15 @@ body {
 }
 .mail-item__attach svg { width: 11px; height: 11px; }
 
+.mail-item__folder {
+  font-size: 11px; font-weight: 500;
+  color: #b5420a;
+  background: #fce8d8;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap; flex-shrink: 0;
+}
+
 /* ── 详情面板 ──────────────────────────── */
 .detail-panel {
   width: var(--panel-w);

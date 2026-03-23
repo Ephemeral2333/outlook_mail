@@ -77,11 +77,15 @@
              </svg>附件
            </span>` : '';
 
+      const folderHtml = (msg.folder && msg.folder !== '收件箱')
+        ? `<span class="mail-item__folder">${escHtml(msg.folder)}</span>` : '';
+
       li.innerHTML = `
         <span class="mail-item__dot"></span>
         <span class="mail-item__from">${escHtml(msg.from)}</span>
         <span class="mail-item__time">${escHtml(formatTime(msg.receivedAt))}</span>
         <div class="mail-item__body">
+          ${folderHtml}
           <span class="mail-item__subject">${escHtml(msg.subject)}</span>
           <span class="mail-item__preview">${escHtml(msg.preview || '')}</span>
           ${attachHtml}
