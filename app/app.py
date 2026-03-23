@@ -1,8 +1,10 @@
 import re
+import asyncio
 import threading
 from flask import Flask, request, jsonify, send_from_directory
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from werkzeug.serving import make_server
 import config
 from database import Database
 from outlook_service import get_access_token, fetch_emails, fetch_email_detail
@@ -180,13 +182,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text('请发送邮箱地址、#编号，或用 /add 导入')
 
-def start_bot():
-    bot_app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
-    bot_app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    bot_app.run_polling()
-
 # ── 启动 ──────────────────────────────────────────────────
 
+def run_flask():
+    server = make_server('0.0.0.0', config.PORT, app)
+    server.serve_forever()
+
+async def run_bot():
+    bot_app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    bot_app.add_handler(MessageHandler(filters.TEXT, handle_message))
+    async with bot_app:
+        await bot_app.start()
+        await bot_app.updater.start_polling()
+        # 挂起，直到收到停止信号
+        await asyncio.Event().wait()
+
 if __name__ == '__main__':
-    threading.Thread(target=start_bot, daemon=True).start()
-    app.run(host='0.0.0.0', port=config.PORT, debug=False)
+    # Flask 跑在子线程
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print(f'Server listening on {config.APP_BASE_URL}')
+
+    # Bot 跑在主线程的 asyncio 事件循环
+    asyncio.run(run_bot())
