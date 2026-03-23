@@ -25,8 +25,8 @@
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-username/outlook-mail.git
-cd outlook-mail
+git clone https://github.com/your-username/outlook_mail.git
+cd outlook_mail
 ```
 
 ### 2. 配置环境变量
