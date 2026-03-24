@@ -165,11 +165,15 @@
 
     let bodyHtml = '';
     if (msg.htmlBody) {
-      // 用 iframe 隔离 HTML 邮件样式
-      const blob = new Blob([msg.htmlBody], { type: 'text/html' });
+      // 注入 <base target="_blank"> 让所有链接在新标签页打开
+      const injected = msg.htmlBody.replace(
+        /<head([^>]*)>/i,
+        '<head$1><base target="_blank" rel="noopener noreferrer">'
+      );
+      const blob = new Blob([injected], { type: 'text/html' });
       const url  = URL.createObjectURL(blob);
       bodyHtml = `<div class="detail-body detail-body--html">
-        <iframe src="${url}" sandbox="allow-same-origin"
+        <iframe src="${url}" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
           onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'"></iframe>
       </div>`;
     } else if (msg.textBody) {
