@@ -211,20 +211,21 @@ def _parse_message(raw_email, flags_raw, folder_name, email_id_str=''):
 
 
 def fetch_emails(email_address, client_id, refresh_token, limit=20):
+    """返回 (messages, new_refresh_token)，new_refresh_token 为 None 表示无更新"""
     # ── 优先尝试 Graph API ────────────────────────────────
-    graph_token, _ = get_graph_access_token(client_id, refresh_token)
+    graph_token, new_rt = get_graph_access_token(client_id, refresh_token)
     if graph_token:
         try:
             result = _fetch_via_graph(email_address, graph_token, limit)
             if result is not None:
                 print(f'[fetch] Graph API success for {email_address}')
-                return result
+                return result, new_rt
         except Exception as e:
             print(f'[fetch] Graph API failed, falling back to IMAP: {e}')
 
     # ── 降级到 IMAP ───────────────────────────────────────
     print(f'[fetch] Using IMAP for {email_address}')
-    imap_token, _ = get_access_token(client_id, refresh_token)
+    imap_token, new_rt = get_access_token(client_id, refresh_token)
     if not imap_token:
         raise RuntimeError('Failed to get access token via both Graph and IMAP paths')
 
@@ -276,7 +277,7 @@ def fetch_emails(email_address, client_id, refresh_token, limit=20):
         for item in result:
             del item['_ts']
 
-        return result[:limit]
+        return result[:limit], new_rt
 
     except Exception as e:
         print(f'IMAP fetch_emails error: {e}')

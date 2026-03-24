@@ -71,7 +71,9 @@ def get_messages():
         return jsonify({'error': '链接无效或已过期，请重新获取'}), 401
 
     refresh_token = db.decrypt_token(mailbox['refresh_token_encrypted'])
-    messages = fetch_emails(mailbox['email'], mailbox['client_id'], refresh_token)
+    messages, new_refresh_token = fetch_emails(mailbox['email'], mailbox['client_id'], refresh_token)
+    if new_refresh_token:
+        db.update_refresh_token(mailbox['id'], new_refresh_token)
     return jsonify({'ok': True, 'mailboxEmail': mailbox['email'], 'messages': messages})
 
 @app.route('/api/message/<email_id>')
