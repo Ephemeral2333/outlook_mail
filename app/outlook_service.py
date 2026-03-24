@@ -1,5 +1,6 @@
 import imaplib
 import email
+import re
 import chardet
 from email.header import decode_header
 import requests
@@ -67,10 +68,16 @@ FETCH_FOLDERS = [
     ('Junk Email',           '垃圾邮件'),   # 部分账号用这个名字
 ]
 
-def _parse_message(raw_email, flags_raw, folder_name, email_id_str):
+def _parse_message(raw_email, flags_raw, folder_name, email_id_str=''):
     """解析一封原始邮件，返回结构化数据"""
     is_read = '\\Seen' in flags_raw
     msg = email.message_from_bytes(raw_email)
+
+    # 优先用传入的 IMAP sequence ID，否则用 Message-ID 头
+    if not email_id_str:
+        # 从 flags_raw 里提取 IMAP sequence number，格式如 "3 (FLAGS ..."
+        m = re.match(r'(\d+)\s+\(', flags_raw)
+        email_id_str = m.group(1) if m else (msg.get('Message-ID', '') or '')
 
     subject     = _decode_str(msg.get('Subject', ''))
     from_header = _decode_str(msg.get('From', 'Unknown'))
@@ -136,7 +143,6 @@ def fetch_emails(email_address, access_token, limit=20):
         seen_folders = set()
 
         for folder_imap, folder_label in FETCH_FOLDERS:
-            # 同一个文件夹可能有多个别名，只取一次
             if folder_label in seen_folders:
                 continue
 
@@ -151,21 +157,30 @@ def fetch_emails(email_address, access_token, limit=20):
             if not email_ids:
                 continue
 
-            # 每个文件夹取最近 limit 封
             recent_ids = email_ids[-limit:]
 
-            for email_id in reversed(recent_ids):
-                _, msg_data = mail.fetch(email_id, '(RFC822 FLAGS)')
-                if not msg_data or not msg_data[0]:
-                    continue
-                raw_email = msg_data[0][1]
-                flags_raw = msg_data[0][0].decode() if msg_data[0][0] else ''
-                parsed = _parse_message(raw_email, flags_raw, folder_label, email_id.decode())
+            # 批量 fetch：一次请求拉取所有邮件
+            ids_str = b','.join(recent_ids).decode()
+            _, msg_data_list = mail.fetch(ids_str, '(RFC822 FLAGS)')
+
+            # imaplib 批量返回格式：
+            # [(b'1 (FLAGS (...) RFC822 {size}', b'<raw email>'), b')', ...]
+            fetched = []
+            for item in msg_data_list:
+                if isinstance(item, tuple) and len(item) == 2:
+                    flags_raw = item[0].decode() if isinstance(item[0], bytes) else str(item[0])
+                    raw_email = item[1]
+                    if isinstance(raw_email, bytes) and len(raw_email) > 0:
+                        fetched.append((flags_raw, raw_email))
+
+            # IMAP 返回顺序为 ID 升序，反转后变新→旧
+            for flags_raw, raw_email in reversed(fetched):
+                parsed = _parse_message(raw_email, flags_raw, folder_label, '')
                 result.append(parsed)
 
         mail.logout()
 
-        # 按时间倒序，最终只取最新的 limit 封
+        # 按时间倒序，最终取最新的 limit 封
         result.sort(key=lambda x: x['_ts'], reverse=True)
         for item in result:
             del item['_ts']
