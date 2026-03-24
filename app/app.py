@@ -7,7 +7,7 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from werkzeug.serving import make_server
 import config
 from database import Database
-from outlook_service import get_access_token, fetch_emails, fetch_email_detail
+from outlook_service import get_access_token, fetch_emails, fetch_email_detail, get_graph_access_token
 
 app = Flask(__name__, static_folder='../public', static_url_path='')
 db = Database()
@@ -71,13 +71,7 @@ def get_messages():
         return jsonify({'error': '链接无效或已过期，请重新获取'}), 401
 
     refresh_token = db.decrypt_token(mailbox['refresh_token_encrypted'])
-    access_token, new_refresh_token = get_access_token(mailbox['client_id'], refresh_token)
-    if not access_token:
-        return jsonify({'error': 'Failed to refresh access token'}), 500
-    if new_refresh_token:
-        db.update_refresh_token(mailbox['id'], new_refresh_token)
-
-    messages = fetch_emails(mailbox['email'], access_token)
+    messages = fetch_emails(mailbox['email'], mailbox['client_id'], refresh_token)
     return jsonify({'ok': True, 'mailboxEmail': mailbox['email'], 'messages': messages})
 
 @app.route('/api/message/<email_id>')
@@ -92,7 +86,6 @@ def get_message_detail(email_id):
         return jsonify({'error': 'Failed to refresh access token'}), 500
     if new_refresh_token:
         db.update_refresh_token(mailbox['id'], new_refresh_token)
-
     detail = fetch_email_detail(mailbox['email'], access_token, email_id)
     return jsonify({'ok': True, 'message': detail})
 

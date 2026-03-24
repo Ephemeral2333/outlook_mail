@@ -18,9 +18,79 @@ def get_access_token(client_id, refresh_token):
     if response.status_code == 200:
         result = response.json()
         access_token = result.get('access_token')
-        new_refresh_token = result.get('refresh_token')  # 微软有时会返回新的
+        new_refresh_token = result.get('refresh_token')
         return access_token, new_refresh_token
     return None, None
+
+
+def get_graph_access_token(client_id, refresh_token):
+    """换取 Graph API 专用的 access_token（需要 graph scope）"""
+    data = {
+        'client_id': client_id,
+        'grant_type': 'refresh_token',
+        'refresh_token': refresh_token,
+        'scope': 'https://graph.microsoft.com/.default'
+    }
+    try:
+        response = requests.post(
+            'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+            data=data
+        )
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('access_token'), result.get('refresh_token')
+    except Exception as e:
+        print(f'Graph token error: {e}')
+    return None, None
+
+
+def _fetch_via_graph(email_address, graph_token, limit=20):
+    """通过 Graph API 拉取全部邮件（跨所有文件夹，按时间倒序）"""
+    headers = {'Authorization': f'Bearer {graph_token}'}
+    result = []
+
+    url = (
+        f'https://graph.microsoft.com/v1.0/me/messages'
+        f'?$top={limit}'
+        f'&$select=id,subject,from,toRecipients,receivedDateTime,isRead,hasAttachments,bodyPreview,body,parentFolderId'
+        f'&$orderby=receivedDateTime desc'
+    )
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        if response.status_code != 200:
+            print(f'Graph fetch all messages failed: {response.status_code} {response.text}')
+            return None
+        messages = response.json().get('value', [])
+    except Exception as e:
+        print(f'Graph fetch error: {e}')
+        return None
+
+    for m in messages:
+        from_obj  = m.get('from', {}).get('emailAddress', {})
+        to_list   = m.get('toRecipients', [])
+        to_str    = ', '.join(r.get('emailAddress', {}).get('address', '') for r in to_list)
+        body      = m.get('body', {})
+        html_body = body.get('content', '') if body.get('contentType') == 'html' else ''
+        text_body = body.get('content', '') if body.get('contentType') == 'text' else ''
+        preview   = m.get('bodyPreview', '')
+
+        result.append({
+            'id':             m.get('id', ''),
+            'folder':         '',
+            'subject':        m.get('subject') or '(no subject)',
+            'from':           f"{from_obj.get('name', '')} <{from_obj.get('address', '')}>".strip(),
+            'to':             to_str,
+            'receivedAt':     m.get('receivedDateTime', ''),
+            'isRead':         m.get('isRead', False),
+            'hasAttachments': m.get('hasAttachments', False),
+            'preview':        preview,
+            'htmlBody':       html_body,
+            'textBody':       text_body,
+            'attachments':    []
+        })
+
+    return result
 
 
 def generate_auth_string(user, token):
@@ -140,9 +210,26 @@ def _parse_message(raw_email, flags_raw, folder_name, email_id_str=''):
     }
 
 
-def fetch_emails(email_address, access_token, limit=20):
+def fetch_emails(email_address, client_id, refresh_token, limit=20):
+    # ── 优先尝试 Graph API ────────────────────────────────
+    graph_token, _ = get_graph_access_token(client_id, refresh_token)
+    if graph_token:
+        try:
+            result = _fetch_via_graph(email_address, graph_token, limit)
+            if result is not None:
+                print(f'[fetch] Graph API success for {email_address}')
+                return result
+        except Exception as e:
+            print(f'[fetch] Graph API failed, falling back to IMAP: {e}')
+
+    # ── 降级到 IMAP ───────────────────────────────────────
+    print(f'[fetch] Using IMAP for {email_address}')
+    imap_token, _ = get_access_token(client_id, refresh_token)
+    if not imap_token:
+        raise RuntimeError('Failed to get access token via both Graph and IMAP paths')
+
     try:
-        mail = _imap_connect(email_address, access_token)
+        mail = _imap_connect(email_address, imap_token)
         result = []
         seen_folders = set()
 
@@ -196,8 +283,51 @@ def fetch_emails(email_address, access_token, limit=20):
         raise
 
 
-def fetch_email_detail(email_address, access_token, email_id):
-    """获取单封邮件完整内容"""
+def _is_graph_id(email_id):
+    """Graph API 邮件 ID 是 Base64 长字符串，IMAP 是纯数字"""
+    return not str(email_id).isdigit()
+
+
+def fetch_email_detail(email_address, access_token, email_id, client_id=None, refresh_token=None):
+    """获取单封邮件完整内容，自动根据 email_id 类型选择 Graph 或 IMAP"""
+    if _is_graph_id(email_id):
+        # Graph API 路径
+        graph_token = access_token
+        if client_id and refresh_token:
+            graph_token, _ = get_graph_access_token(client_id, refresh_token)
+        if graph_token:
+            try:
+                url = (
+                    f'https://graph.microsoft.com/v1.0/me/messages/{email_id}'
+                    f'?$select=id,subject,from,toRecipients,receivedDateTime,isRead,hasAttachments,body'
+                )
+                headers = {'Authorization': f'Bearer {graph_token}'}
+                response = requests.get(url, headers=headers, timeout=15)
+                if response.status_code == 200:
+                    m = response.json()
+                    from_obj = m.get('from', {}).get('emailAddress', {})
+                    to_list  = m.get('toRecipients', [])
+                    to_str   = ', '.join(r.get('emailAddress', {}).get('address', '') for r in to_list)
+                    body     = m.get('body', {})
+                    html_body = body.get('content', '') if body.get('contentType') == 'html' else ''
+                    text_body = body.get('content', '') if body.get('contentType') == 'text' else ''
+                    return {
+                        'id': email_id,
+                        'subject': m.get('subject') or '(no subject)',
+                        'from': f"{from_obj.get('name', '')} <{from_obj.get('address', '')}>".strip(),
+                        'to': to_str,
+                        'receivedAt': m.get('receivedDateTime', ''),
+                        'isRead': m.get('isRead', False),
+                        'hasAttachments': m.get('hasAttachments', False),
+                        'htmlBody': html_body,
+                        'textBody': text_body,
+                        'attachments': []
+                    }
+            except Exception as e:
+                print(f'Graph fetch_email_detail error: {e}')
+        return None
+
+    # IMAP 路径
     try:
         mail = _imap_connect(email_address, access_token)
         mail.select('inbox')
