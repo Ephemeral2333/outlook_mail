@@ -18,6 +18,7 @@
   const overlay       = document.getElementById('overlay');
 
   let activeItem = null;
+  let activeBlobUrl = null;
 
   // ── 工具函数 ──────────────────────────────
 
@@ -133,6 +134,8 @@
     detailPanel.classList.remove('is-open');
     overlay.classList.remove('is-visible');
     if (activeItem) { activeItem.classList.remove('mail-item--active'); activeItem = null; }
+    if (activeBlobUrl) { URL.revokeObjectURL(activeBlobUrl); activeBlobUrl = null; }
+    detailContent.innerHTML = '';
   }
 
   function openDetail(msg, liEl) {
@@ -170,10 +173,15 @@
         /<head([^>]*)>/i,
         '<head$1><base target="_blank" rel="noopener noreferrer">'
       );
+      // 释放上一封邮件的 Blob URL，防止内存泄漏
+      if (activeBlobUrl) {
+        URL.revokeObjectURL(activeBlobUrl);
+        activeBlobUrl = null;
+      }
       const blob = new Blob([injected], { type: 'text/html' });
-      const url  = URL.createObjectURL(blob);
+      activeBlobUrl = URL.createObjectURL(blob);
       bodyHtml = `<div class="detail-body detail-body--html">
-        <iframe src="${url}" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
+        <iframe src="${activeBlobUrl}" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
           onload="this.style.height=this.contentDocument.body.scrollHeight+40+'px'"></iframe>
       </div>`;
     } else if (msg.textBody) {
