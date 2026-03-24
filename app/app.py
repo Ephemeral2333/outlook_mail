@@ -71,9 +71,11 @@ def get_messages():
         return jsonify({'error': '链接无效或已过期，请重新获取'}), 401
 
     refresh_token = db.decrypt_token(mailbox['refresh_token_encrypted'])
-    access_token = get_access_token(mailbox['client_id'], refresh_token)
+    access_token, new_refresh_token = get_access_token(mailbox['client_id'], refresh_token)
     if not access_token:
         return jsonify({'error': 'Failed to refresh access token'}), 500
+    if new_refresh_token:
+        db.update_refresh_token(mailbox['id'], new_refresh_token)
 
     messages = fetch_emails(mailbox['email'], access_token)
     return jsonify({'ok': True, 'mailboxEmail': mailbox['email'], 'messages': messages})
@@ -85,9 +87,11 @@ def get_message_detail(email_id):
         return jsonify({'error': '链接无效或已过期，请重新获取'}), 401
 
     refresh_token = db.decrypt_token(mailbox['refresh_token_encrypted'])
-    access_token = get_access_token(mailbox['client_id'], refresh_token)
+    access_token, new_refresh_token = get_access_token(mailbox['client_id'], refresh_token)
     if not access_token:
         return jsonify({'error': 'Failed to refresh access token'}), 500
+    if new_refresh_token:
+        db.update_refresh_token(mailbox['id'], new_refresh_token)
 
     detail = fetch_email_detail(mailbox['email'], access_token, email_id)
     return jsonify({'ok': True, 'message': detail})

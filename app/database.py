@@ -74,6 +74,14 @@ class Database:
     def decrypt_token(self, encrypted):
         return self.cipher.decrypt(encrypted.encode()).decode()
 
+    def update_refresh_token(self, mailbox_id: int, new_refresh_token: str):
+        encrypted = self.cipher.encrypt(new_refresh_token.encode()).decode()
+        self.conn.execute(
+            'UPDATE mailboxes SET refresh_token_encrypted=? WHERE id=?',
+            (encrypted, mailbox_id)
+        )
+        self.conn.commit()
+
     # ── 访问 token ──────────────────────────────────────────
 
     def create_access_token(self, mailbox_id: int, ttl_seconds: int = 3600) -> str:

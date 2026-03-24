@@ -7,6 +7,7 @@ import requests
 
 
 def get_access_token(client_id, refresh_token):
+    """用 refresh_token 换取 access_token，同时返回新的 refresh_token（如有）"""
     url = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
     data = {
         'client_id': client_id,
@@ -15,8 +16,11 @@ def get_access_token(client_id, refresh_token):
     }
     response = requests.post(url, data=data)
     if response.status_code == 200:
-        return response.json().get('access_token')
-    return None
+        result = response.json()
+        access_token = result.get('access_token')
+        new_refresh_token = result.get('refresh_token')  # 微软有时会返回新的
+        return access_token, new_refresh_token
+    return None, None
 
 
 def generate_auth_string(user, token):
